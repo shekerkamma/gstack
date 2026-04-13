@@ -30,6 +30,30 @@ knowledge, and prune stale or contradictory entries.
 
 ---
 
+## Provenance: the honesty dimension
+
+Every learning carries a **provenance** tag that answers "is this a direct
+observation or a deduction?" — a different axis from `confidence` (how sure,
+1-10) and `source` (who logged it). The three values:
+
+- **`found`** `[F]` — directly observed in code, output, or an error. High trust.
+  Examples: a grep match, a test failure, an explicit user statement.
+- **`inferred`** `[I]` — deduced from patterns or cross-references across multiple
+  observations. The default when the field is omitted on an older entry.
+- **`uncertain`** `[?]` — informed guess with thin evidence. Flag for aggressive
+  pruning and always verify before relying on.
+
+A `[I]*` glyph (with asterisk) means the provenance was **implicit** — the entry
+was logged without the field and the reader normalized it to `inferred`. Treat
+implicit-inferred as slightly weaker than explicit-inferred; the author didn't
+commit to a category.
+
+A 10/10 `found` learning is categorically different from a 10/10 `inferred` one.
+When applying learnings downstream, prefer `found` over `inferred` over `uncertain`,
+regardless of raw confidence score.
+
+---
+
 ## Detect command
 
 Parse the user's input to determine which command to run:
@@ -88,6 +112,16 @@ For each learning in the output:
    opposite `insight` values. Flag: "CONFLICT: [key] has contradicting entries —
    [insight A] vs [insight B]"
 
+3. **Provenance-weighted staleness:** Apply these rules by provenance tag:
+   - `[F]` **found** entries are only flagged on file deletion or explicit contradiction.
+     Their direct-observation origin makes them expensive to re-derive; bias toward keeping.
+   - `[I]` **inferred** entries follow the existing file/contradiction rules above.
+   - `[?]` **uncertain** entries are flagged if they haven't been reinforced
+     (no newer entry with same key+type) in the last 30 days. Low-evidence learnings
+     should earn their place by being re-observed, or they decay out.
+   - `[I]*` **implicit-inferred** entries (legacy, no explicit provenance field) are
+     always candidates for tagging on review — ask the user to categorize them.
+
 Present each flagged entry via AskUserQuestion:
 - A) Remove this learning
 - B) Keep it
@@ -108,23 +142,29 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 50 2>/dev/null
 ```
 
-Format the output as a markdown section:
+Format the output as a markdown section, **grouped first by provenance** so
+readers can tell directly-observed facts apart from deductions. Within each
+provenance group, list entries by type.
 
 ```markdown
 ## Project Learnings
 
-### Patterns
-- **[key]**: [insight] (confidence: N/10)
+### Observed `[F]` — high-trust, directly seen
+- **[key]** (pattern): [insight] (confidence: N/10)
+- **[key]** (pitfall): [insight] (confidence: N/10)
 
-### Pitfalls
-- **[key]**: [insight] (confidence: N/10)
+### Inferred `[I]` — deduced from patterns
+- **[key]** (pattern): [insight] (confidence: N/10)
+- **[key]** (preference): [insight]
 
-### Preferences
-- **[key]**: [insight]
-
-### Architecture
-- **[key]**: [insight] (confidence: N/10)
+### Uncertain `[?]` — verify before relying
+- **[key]** (architecture): [insight] (confidence: N/10)
 ```
+
+If an entry has implicit provenance (`[I]*` in the search output), list it
+under Inferred but suffix the key with ` (implicit)` — e.g.
+`**merge-main-before-ship** (implicit)` — so the reader knows it wasn't
+author-tagged.
 
 Present the formatted output to the user. Ask if they want to append it to CLAUDE.md
 or save it as a separate file.
@@ -156,16 +196,24 @@ if [ -f "$LEARN_FILE" ]; then
     }
     const byType = {};
     const bySource = {};
+    const byProvenance = { found: 0, inferred: 0, uncertain: 0, 'inferred-implicit': 0 };
     let totalConf = 0;
     for (const e of seen.values()) {
       byType[e.type] = (byType[e.type]||0) + 1;
       bySource[e.source] = (bySource[e.source]||0) + 1;
       totalConf += e.confidence || 0;
+      // Classify provenance: explicit values count directly; missing = inferred-implicit
+      if (e.provenance === 'found' || e.provenance === 'inferred' || e.provenance === 'uncertain') {
+        byProvenance[e.provenance]++;
+      } else {
+        byProvenance['inferred-implicit']++;
+      }
     }
     console.log('UNIQUE: ' + seen.size + ' (after dedup)');
     console.log('RAW_ENTRIES: ' + lines.length);
     console.log('BY_TYPE: ' + JSON.stringify(byType));
     console.log('BY_SOURCE: ' + JSON.stringify(bySource));
+    console.log('BY_PROVENANCE: ' + JSON.stringify(byProvenance));
     console.log('AVG_CONFIDENCE: ' + (totalConf / seen.size).toFixed(1));
   " 2>/dev/null
 else
@@ -183,11 +231,15 @@ The user wants to manually add a learning. Use AskUserQuestion to gather:
 1. Type (pattern / pitfall / preference / architecture / tool)
 2. A short key (2-5 words, kebab-case)
 3. The insight (one sentence)
-4. Confidence (1-10)
-5. Related files (optional)
+4. **Provenance** — is this a direct observation, a deduction, or a guess?
+   - `found` — you directly saw this (error message, test failure, explicit statement)
+   - `inferred` — you deduced this from multiple observations
+   - `uncertain` — informed guess with thin evidence
+5. Confidence (1-10)
+6. Related files (optional)
 
-Then log it:
+Then log it (note the `provenance` field):
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","provenance":"PROVENANCE","confidence":N,"source":"user-stated","files":["FILE1"]}'
 ```

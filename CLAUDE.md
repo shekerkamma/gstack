@@ -188,6 +188,15 @@ failure modes. The sidebar spans 5 files across 2 codebases (extension + server)
 with non-obvious ordering dependencies. The doc exists to prevent the kind of
 silent failures that come from not understanding the cross-component flow.
 
+## Diagrams
+
+Prefer Mermaid fenced blocks for graphs (flowchart, sequence, state, class, ER
+with relations, gantt), markdown tables for 2D matrices and schema field lists,
+and ASCII trees for directory structures. When diagramming an existing system,
+read the source doc (e.g. `docs/designs/*.md`) before drawing — don't
+reconstruct the flow from memory. gstack does not ship a general illustration
+tool; `design/` is a UI mockup generator (PNG, `--brief`), not a diagram engine.
+
 ## Dev symlink awareness
 
 When developing gstack, `.claude/skills/gstack` may be a symlink back to this

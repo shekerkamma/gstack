@@ -66,6 +66,15 @@ for (const line of lines) {
     }
     e._effectiveConfidence = conf;
 
+    // Normalize provenance: missing → inferred (safest default).
+    // Track whether the field was explicit so the display can show honesty.
+    if (e.provenance === 'found' || e.provenance === 'inferred' || e.provenance === 'uncertain') {
+      e._provenanceExplicit = true;
+    } else {
+      e.provenance = 'inferred';
+      e._provenanceExplicit = false;
+    }
+
     // Determine if this is from the current project or cross-project
     // Cross-project entries are tagged for display
     e._crossProject = !line.includes(slug) && process.env.GSTACK_SEARCH_CROSS === 'true';
@@ -124,7 +133,12 @@ for (const [t, arr] of Object.entries(byType)) {
   for (const e of arr) {
     const cross = e._crossProject ? ' [cross-project]' : '';
     const files = e.files?.length ? ' (files: ' + e.files.join(', ') + ')' : '';
-    console.log('- [' + e.key + '] (confidence: ' + e._effectiveConfidence + '/10, ' + e.source + ', ' + (e.ts || '').split('T')[0] + ')' + cross);
+    // Provenance glyph: F=found, I=inferred, ?=uncertain. Asterisk marks
+    // implicit defaults (no explicit field in the logged entry) so readers
+    // can tell tagged-by-the-author apart from normalized-at-read-time.
+    const glyphMap = { found: 'F', inferred: 'I', uncertain: '?' };
+    const prov = '[' + glyphMap[e.provenance] + (e._provenanceExplicit ? '' : '*') + ']';
+    console.log('- ' + prov + ' [' + e.key + '] (confidence: ' + e._effectiveConfidence + '/10, ' + e.source + ', ' + (e.ts || '').split('T')[0] + ')' + cross);
     console.log('  ' + e.insight + files);
   }
   console.log('');

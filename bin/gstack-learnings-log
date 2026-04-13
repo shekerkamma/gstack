@@ -4,6 +4,19 @@
 #
 # Append-only storage. Duplicates (same key+type) are resolved at read time
 # by gstack-learnings-search ("latest winner" per key+type).
+#
+# Optional: provenance: "found" | "inferred" | "uncertain"
+#   found    — directly observed in code/output/error (e.g. grep match, test
+#              failure, explicit user statement). High trust.
+#   inferred — deduced from patterns or cross-references across multiple
+#              observations. Default when the field is omitted.
+#   uncertain — informed guess with thin evidence. Flag for aggressive prune.
+#
+# Provenance answers "is this a direct observation or a deduction" — a
+# different axis from `confidence` (how sure on a 10-point scale) and
+# `source` (who logged it). A 10/10 inferred learning is categorically
+# different from a 10/10 found one; downstream consumers weight them
+# differently.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"

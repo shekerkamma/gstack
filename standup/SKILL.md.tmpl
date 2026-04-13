@@ -1,0 +1,176 @@
+---
+name: standup
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Morning standup brief for the repo you're sitting in. Composes git log, open PRs,
+  CI state, latest checkpoint, TODOS.md, and recent learnings into a 5-section
+  "where things stand" summary you can scan in 15 seconds.
+  Use when asked to "standup", "morning brief", "where are we", "what's the state",
+  "catch me up", or "good morning". Proactively suggest at the start of a session
+  when the user seems to be reorienting after a break. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Glob
+  - Grep
+---
+
+{{PREAMBLE}}
+
+# /standup — Morning Brief
+
+You are a **tech lead running a 60-second standup**. Your job is to read the
+current state of the repo and produce a scannable 5-section brief that tells the
+user exactly where to click next. No analysis beyond what's visible. No advice
+beyond surfacing what's broken. No mutations — this skill is read-only.
+
+**HARD GATES:**
+- Do NOT modify any files. No writes, no edits, no commits.
+- Do NOT run tests, builds, or anything that takes more than a few seconds.
+- Do NOT ask follow-up questions. Produce the brief and stop.
+- If a section has nothing interesting, print one line ("No open PRs", "Clean
+  tree", "main is green") — never pad with speculation.
+
+---
+
+## Arguments
+
+- `/standup` — default: since the last standup run, or 24h if none recorded
+- `/standup 2d` — window of 2 days
+- `/standup 1w` — window of 1 week
+
+Parse the argument as a git `--since` value. Default to 24 hours. Report the
+window you chose in the header line.
+
+---
+
+## Step 1: Orient
+
+Run these in parallel — they are independent:
+
+```bash
+git rev-parse --show-toplevel 2>/dev/null || echo "NOT_A_GIT_REPO"
+git rev-parse --abbrev-ref HEAD 2>/dev/null
+git config user.name 2>/dev/null
+git config user.email 2>/dev/null
+date +%Y-%m-%d
+pwd
+```
+
+If not a git repo, print "Not a git repo — /standup is repo-scoped" and stop.
+
+The name returned by `git config user.name` is **"you"** — filter all commit
+and PR queries to this author so the brief is personal.
+
+## Step 2: Gather state (parallel)
+
+Run ALL of the following in parallel. Every command must degrade gracefully —
+if a tool is missing or a file doesn't exist, print a sentinel and move on.
+Never fail the whole brief because one source is unavailable.
+
+```bash
+# A. Commits since window, by you
+git log --since="<window>" --author="$(git config user.email)" --oneline -20 2>/dev/null || echo "GIT_LOG_FAIL"
+
+# B. Working tree state
+git status --short 2>/dev/null
+git diff --shortstat 2>/dev/null
+git diff --cached --shortstat 2>/dev/null
+
+# C. Open PRs authored by you
+if command -v gh >/dev/null 2>&1; then
+  gh pr list --author=@me --json number,title,headRefName,isDraft,statusCheckRollup,reviewDecision --limit 10 2>/dev/null || echo "GH_PR_FAIL"
+else
+  echo "GH_NOT_INSTALLED"
+fi
+
+# D. Main branch CI state (last 5 runs)
+if command -v gh >/dev/null 2>&1; then
+  gh run list --branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)" --limit 5 --json status,conclusion,name,createdAt 2>/dev/null || echo "GH_RUN_FAIL"
+fi
+
+# E. Latest checkpoint for this repo
+SLUG=$(basename "$(git rev-parse --show-toplevel)")
+CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+if [ -d "$CHECKPOINT_DIR" ]; then
+  find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -1
+else
+  echo "NO_CHECKPOINTS"
+fi
+
+# F. TODOS.md top items
+if [ -f TODOS.md ]; then
+  head -50 TODOS.md
+else
+  echo "NO_TODOS"
+fi
+
+# G. Recent learnings (last 3)
+LEARN_DIR="$HOME/.gstack/projects/$SLUG/learnings"
+if [ -d "$LEARN_DIR" ]; then
+  find "$LEARN_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -3
+else
+  echo "NO_LEARNINGS"
+fi
+```
+
+For the latest checkpoint file, read it and extract the **Summary** and
+**Remaining Work** sections — those become the "Resume from checkpoint"
+block in the output.
+
+## Step 3: Compose the brief
+
+Produce exactly this format. Section order is fixed. Sections with no content
+collapse to a single line — never omit a section header.
+
+```
+## Standup — <date> (<repo-name>, branch: <current-branch>, window: <window>)
+
+Yesterday (or: since last standup)
+  • <up to 3 most recent commits by you, subject only — no hash>
+  • <if more than 3, add "…and N more">
+  • <if zero commits: "No commits in window">
+
+In flight
+  • <current branch name if not main/master>
+  • <git status summary, e.g. "3 files modified, 1 staged">
+  • <if clean: "Clean tree on <branch>">
+
+Open PRs
+  • #<num> <title> — <CI state>, <review decision or "no reviewers yet">
+  • <repeat up to 3>
+  • <if zero: "No open PRs">
+
+Red flags
+  • <only list real problems: failing main CI, merge conflicts on current branch,
+    dirty tree on main, PR blocked by reviewer>
+  • <if none: "None — main is green">
+
+Resume from checkpoint
+  • <title of latest checkpoint, if any>
+  • Next step: <first item from checkpoint Remaining Work>
+  • <if no checkpoint: "No checkpoint saved. Run /checkpoint when you pause.">
+
+Today's top 3
+  • <top 3 items from TODOS.md, or first 3 items from checkpoint Remaining Work>
+  • <if neither exists: "No TODOS.md found. What's your top priority?">
+```
+
+## Hard rules on the output
+
+- **Cap bullets.** Max 3 per section. If there are more, summarize with "…and N
+  more". The whole brief must fit on one screen.
+- **No hashes, timestamps, or author lines.** Just subjects and numbers.
+- **No advice, no opinions, no "you should…".** This is a status report, not a
+  planning session. The `/retro` skill does analysis; `/standup` does not.
+- **No markdown tables.** Bullets only. Tables wrap badly in terminals.
+- **Stop after the brief.** Do not offer to do anything. Do not ask what's next.
+  The user reads the brief and decides.
+
+## What to skip
+
+If the user is in the middle of an active conversation (not a fresh session), and
+the git state already matches what was just discussed, tell them "You are already
+oriented — /standup is for the top of a session" and stop. Don't produce a brief
+that repeats what they already know from the last 5 minutes of conversation.

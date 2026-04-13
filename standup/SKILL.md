@@ -1,19 +1,17 @@
 ---
-name: learn
+name: standup
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Manage project learnings. Review, search, prune, and export what gstack
-  has learned across sessions. Use when asked to "what have we learned",
-  "show learnings", "prune stale learnings", or "export learnings".
-  Proactively suggest when the user asks about past patterns or wonders
-  "didn't we fix this before?"
+  Morning standup brief for the repo you're sitting in. Composes git log, open PRs,
+  CI state, latest checkpoint, TODOS.md, and recent learnings into a 5-section
+  "where things stand" summary you can scan in 15 seconds.
+  Use when asked to "standup", "morning brief", "where are we", "what's the state",
+  "catch me up", or "good morning". Proactively suggest at the start of a session
+  when the user seems to be reorienting after a break. (gstack)
 allowed-tools:
   - Bash
   - Read
-  - Write
-  - Edit
-  - AskUserQuestion
   - Glob
   - Grep
 ---
@@ -50,7 +48,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"learn","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"standup","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -75,7 +73,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"learn","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"standup","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -534,226 +532,159 @@ Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-# Project Learnings Manager
+# /standup — Morning Brief
 
-You are a **Staff Engineer who maintains the team wiki**. Your job is to help the user
-see what gstack has learned across sessions on this project, search for relevant
-knowledge, and prune stale or contradictory entries.
+You are a **tech lead running a 60-second standup**. Your job is to read the
+current state of the repo and produce a scannable 5-section brief that tells the
+user exactly where to click next. No analysis beyond what's visible. No advice
+beyond surfacing what's broken. No mutations — this skill is read-only.
 
-**HARD GATE:** Do NOT implement code changes. This skill manages learnings only.
-
----
-
-## Provenance: the honesty dimension
-
-Every learning carries a **provenance** tag that answers "is this a direct
-observation or a deduction?" — a different axis from `confidence` (how sure,
-1-10) and `source` (who logged it). The three values:
-
-- **`found`** `[F]` — directly observed in code, output, or an error. High trust.
-  Examples: a grep match, a test failure, an explicit user statement.
-- **`inferred`** `[I]` — deduced from patterns or cross-references across multiple
-  observations. The default when the field is omitted on an older entry.
-- **`uncertain`** `[?]` — informed guess with thin evidence. Flag for aggressive
-  pruning and always verify before relying on.
-
-A `[I]*` glyph (with asterisk) means the provenance was **implicit** — the entry
-was logged without the field and the reader normalized it to `inferred`. Treat
-implicit-inferred as slightly weaker than explicit-inferred; the author didn't
-commit to a category.
-
-A 10/10 `found` learning is categorically different from a 10/10 `inferred` one.
-When applying learnings downstream, prefer `found` over `inferred` over `uncertain`,
-regardless of raw confidence score.
+**HARD GATES:**
+- Do NOT modify any files. No writes, no edits, no commits.
+- Do NOT run tests, builds, or anything that takes more than a few seconds.
+- Do NOT ask follow-up questions. Produce the brief and stop.
+- If a section has nothing interesting, print one line ("No open PRs", "Clean
+  tree", "main is green") — never pad with speculation.
 
 ---
 
-## Detect command
+## Arguments
 
-Parse the user's input to determine which command to run:
+- `/standup` — default: since the last standup run, or 24h if none recorded
+- `/standup 2d` — window of 2 days
+- `/standup 1w` — window of 1 week
 
-- `/learn` (no arguments) → **Show recent**
-- `/learn search <query>` → **Search**
-- `/learn prune` → **Prune**
-- `/learn export` → **Export**
-- `/learn stats` → **Stats**
-- `/learn add` → **Manual add**
+Parse the argument as a git `--since` value. Default to 24 hours. Report the
+window you chose in the header line.
 
 ---
 
-## Show recent (default)
+## Step 1: Orient
 
-Show the most recent 20 learnings, grouped by type.
+Run these in parallel — they are independent:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo "No learnings yet."
+git rev-parse --show-toplevel 2>/dev/null || echo "NOT_A_GIT_REPO"
+git rev-parse --abbrev-ref HEAD 2>/dev/null
+git config user.name 2>/dev/null
+git config user.email 2>/dev/null
+date +%Y-%m-%d
+pwd
 ```
 
-Present the output in a readable format. If no learnings exist, tell the user:
-"No learnings recorded yet. As you use /review, /ship, /investigate, and other skills,
-gstack will automatically capture patterns, pitfalls, and insights it discovers."
+If not a git repo, print "Not a git repo — /standup is repo-scoped" and stop.
 
----
+The name returned by `git config user.name` is **"you"** — filter all commit
+and PR queries to this author so the brief is personal.
 
-## Search
+## Step 2: Gather state (parallel)
+
+Run ALL of the following in parallel. Every command must degrade gracefully —
+if a tool is missing or a file doesn't exist, print a sentinel and move on.
+Never fail the whole brief because one source is unavailable.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo "No matches."
-```
+# A. Commits since window, by you
+git log --since="<window>" --author="$(git config user.email)" --oneline -20 2>/dev/null || echo "GIT_LOG_FAIL"
 
-Replace USER_QUERY with the user's search terms. Present results clearly.
+# B. Working tree state
+git status --short 2>/dev/null
+git diff --shortstat 2>/dev/null
+git diff --cached --shortstat 2>/dev/null
 
----
+# C. Open PRs authored by you
+if command -v gh >/dev/null 2>&1; then
+  gh pr list --author=@me --json number,title,headRefName,isDraft,statusCheckRollup,reviewDecision --limit 10 2>/dev/null || echo "GH_PR_FAIL"
+else
+  echo "GH_NOT_INSTALLED"
+fi
 
-## Prune
+# D. Main branch CI state (last 5 runs)
+if command -v gh >/dev/null 2>&1; then
+  gh run list --branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)" --limit 5 --json status,conclusion,name,createdAt 2>/dev/null || echo "GH_RUN_FAIL"
+fi
 
-Check learnings for staleness and contradictions.
+# E. Latest checkpoint for this repo
+SLUG=$(basename "$(git rev-parse --show-toplevel)")
+CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+if [ -d "$CHECKPOINT_DIR" ]; then
+  find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -1
+else
+  echo "NO_CHECKPOINTS"
+fi
 
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 100 2>/dev/null
-```
+# F. TODOS.md top items
+if [ -f TODOS.md ]; then
+  head -50 TODOS.md
+else
+  echo "NO_TODOS"
+fi
 
-For each learning in the output:
-
-1. **File existence check:** If the learning has a `files` field, check whether those
-   files still exist in the repo using Glob. If any referenced files are deleted, flag:
-   "STALE: [key] references deleted file [path]"
-
-2. **Contradiction check:** Look for learnings with the same `key` but different or
-   opposite `insight` values. Flag: "CONFLICT: [key] has contradicting entries —
-   [insight A] vs [insight B]"
-
-3. **Provenance-weighted staleness:** Apply these rules by provenance tag:
-   - `[F]` **found** entries are only flagged on file deletion or explicit contradiction.
-     Their direct-observation origin makes them expensive to re-derive; bias toward keeping.
-   - `[I]` **inferred** entries follow the existing file/contradiction rules above.
-   - `[?]` **uncertain** entries are flagged if they haven't been reinforced
-     (no newer entry with same key+type) in the last 30 days. Low-evidence learnings
-     should earn their place by being re-observed, or they decay out.
-   - `[I]*` **implicit-inferred** entries (legacy, no explicit provenance field) are
-     always candidates for tagging on review — ask the user to categorize them.
-
-Present each flagged entry via AskUserQuestion:
-- A) Remove this learning
-- B) Keep it
-- C) Update it (I'll tell you what to change)
-
-For removals, read the learnings.jsonl file and remove the matching line, then write
-back. For updates, append a new entry with the corrected insight (append-only, the
-latest entry wins).
-
----
-
-## Export
-
-Export learnings as markdown suitable for adding to CLAUDE.md or project documentation.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 50 2>/dev/null
-```
-
-Format the output as a markdown section, **grouped first by provenance** so
-readers can tell directly-observed facts apart from deductions. Within each
-provenance group, list entries by type.
-
-```markdown
-## Project Learnings
-
-### Observed `[F]` — high-trust, directly seen
-- **[key]** (pattern): [insight] (confidence: N/10)
-- **[key]** (pitfall): [insight] (confidence: N/10)
-
-### Inferred `[I]` — deduced from patterns
-- **[key]** (pattern): [insight] (confidence: N/10)
-- **[key]** (preference): [insight]
-
-### Uncertain `[?]` — verify before relying
-- **[key]** (architecture): [insight] (confidence: N/10)
-```
-
-If an entry has implicit provenance (`[I]*` in the search output), list it
-under Inferred but suffix the key with ` (implicit)` — e.g.
-`**merge-main-before-ship** (implicit)` — so the reader knows it wasn't
-author-tagged.
-
-Present the formatted output to the user. Ask if they want to append it to CLAUDE.md
-or save it as a separate file.
-
----
-
-## Stats
-
-Show summary statistics about the project's learnings.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-LEARN_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
-if [ -f "$LEARN_FILE" ]; then
-  TOTAL=$(wc -l < "$LEARN_FILE" | tr -d ' ')
-  echo "TOTAL: $TOTAL entries"
-  # Count by type (after dedup)
-  cat "$LEARN_FILE" | bun -e "
-    const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
-    const seen = new Map();
-    for (const line of lines) {
-      try {
-        const e = JSON.parse(line);
-        const dk = (e.key||'') + '|' + (e.type||'');
-        const existing = seen.get(dk);
-        if (!existing || new Date(e.ts) > new Date(existing.ts)) seen.set(dk, e);
-      } catch {}
-    }
-    const byType = {};
-    const bySource = {};
-    const byProvenance = { found: 0, inferred: 0, uncertain: 0, 'inferred-implicit': 0 };
-    let totalConf = 0;
-    for (const e of seen.values()) {
-      byType[e.type] = (byType[e.type]||0) + 1;
-      bySource[e.source] = (bySource[e.source]||0) + 1;
-      totalConf += e.confidence || 0;
-      // Classify provenance: explicit values count directly; missing = inferred-implicit
-      if (e.provenance === 'found' || e.provenance === 'inferred' || e.provenance === 'uncertain') {
-        byProvenance[e.provenance]++;
-      } else {
-        byProvenance['inferred-implicit']++;
-      }
-    }
-    console.log('UNIQUE: ' + seen.size + ' (after dedup)');
-    console.log('RAW_ENTRIES: ' + lines.length);
-    console.log('BY_TYPE: ' + JSON.stringify(byType));
-    console.log('BY_SOURCE: ' + JSON.stringify(bySource));
-    console.log('BY_PROVENANCE: ' + JSON.stringify(byProvenance));
-    console.log('AVG_CONFIDENCE: ' + (totalConf / seen.size).toFixed(1));
-  " 2>/dev/null
+# G. Recent learnings (last 3)
+LEARN_DIR="$HOME/.gstack/projects/$SLUG/learnings"
+if [ -d "$LEARN_DIR" ]; then
+  find "$LEARN_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -3
 else
   echo "NO_LEARNINGS"
 fi
 ```
 
-Present the stats in a readable table format.
+For the latest checkpoint file, read it and extract the **Summary** and
+**Remaining Work** sections — those become the "Resume from checkpoint"
+block in the output.
 
----
+## Step 3: Compose the brief
 
-## Manual add
+Produce exactly this format. Section order is fixed. Sections with no content
+collapse to a single line — never omit a section header.
 
-The user wants to manually add a learning. Use AskUserQuestion to gather:
-1. Type (pattern / pitfall / preference / architecture / tool)
-2. A short key (2-5 words, kebab-case)
-3. The insight (one sentence)
-4. **Provenance** — is this a direct observation, a deduction, or a guess?
-   - `found` — you directly saw this (error message, test failure, explicit statement)
-   - `inferred` — you deduced this from multiple observations
-   - `uncertain` — informed guess with thin evidence
-5. Confidence (1-10)
-6. Related files (optional)
-
-Then log it (note the `provenance` field):
-
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","provenance":"PROVENANCE","confidence":N,"source":"user-stated","files":["FILE1"]}'
 ```
+## Standup — <date> (<repo-name>, branch: <current-branch>, window: <window>)
+
+Yesterday (or: since last standup)
+  • <up to 3 most recent commits by you, subject only — no hash>
+  • <if more than 3, add "…and N more">
+  • <if zero commits: "No commits in window">
+
+In flight
+  • <current branch name if not main/master>
+  • <git status summary, e.g. "3 files modified, 1 staged">
+  • <if clean: "Clean tree on <branch>">
+
+Open PRs
+  • #<num> <title> — <CI state>, <review decision or "no reviewers yet">
+  • <repeat up to 3>
+  • <if zero: "No open PRs">
+
+Red flags
+  • <only list real problems: failing main CI, merge conflicts on current branch,
+    dirty tree on main, PR blocked by reviewer>
+  • <if none: "None — main is green">
+
+Resume from checkpoint
+  • <title of latest checkpoint, if any>
+  • Next step: <first item from checkpoint Remaining Work>
+  • <if no checkpoint: "No checkpoint saved. Run /checkpoint when you pause.">
+
+Today's top 3
+  • <top 3 items from TODOS.md, or first 3 items from checkpoint Remaining Work>
+  • <if neither exists: "No TODOS.md found. What's your top priority?">
+```
+
+## Hard rules on the output
+
+- **Cap bullets.** Max 3 per section. If there are more, summarize with "…and N
+  more". The whole brief must fit on one screen.
+- **No hashes, timestamps, or author lines.** Just subjects and numbers.
+- **No advice, no opinions, no "you should…".** This is a status report, not a
+  planning session. The `/retro` skill does analysis; `/standup` does not.
+- **No markdown tables.** Bullets only. Tables wrap badly in terminals.
+- **Stop after the brief.** Do not offer to do anything. Do not ask what's next.
+  The user reads the brief and decides.
+
+## What to skip
+
+If the user is in the middle of an active conversation (not a fresh session), and
+the git state already matches what was just discussed, tell them "You are already
+oriented — /standup is for the top of a session" and stop. Don't produce a brief
+that repeats what they already know from the last 5 minutes of conversation.
