@@ -22,6 +22,14 @@ export interface OutcomeJudgeResult {
   false_positives: number;
   detection_rate: number;
   evidence_quality: number;
+  /**
+   * For each bug in `detected`, the epistemic category of the detection:
+   *   found    — report explicitly describes the defect with matching symptoms
+   *   inferred — report describes adjacent symptoms that map to this bug
+   *   uncertain — report is ambiguous; detection is a stretch
+   * Downstream scoring may weight `uncertain` detections less than `found`.
+   */
+  detection_provenance: Record<string, 'found' | 'inferred' | 'uncertain'>;
   reasoning: string;
 }
 
@@ -112,6 +120,14 @@ Use the detection_hint keywords as guidance.
 Also count false positives: issues in the report that don't correspond to any
 planted bug AND aren't legitimate issues with the page.
 
+For each bug in "detected", classify HOW the report identified it:
+- "found"     — report explicitly describes the defect with matching symptoms (direct observation)
+- "inferred"  — report describes adjacent symptoms that map to this bug (reasoning from partial evidence)
+- "uncertain" — report is ambiguous; detection is a stretch (guess with thin evidence)
+
+This forces you to commit to an epistemic category instead of hand-waving in the reasoning field.
+A handful of "found" detections is stronger evidence than the same count of "uncertain" ones.
+
 Respond with ONLY valid JSON:
 {
   "detected": ["bug-id-1", "bug-id-2"],
@@ -119,6 +135,7 @@ Respond with ONLY valid JSON:
   "false_positives": 0,
   "detection_rate": 2,
   "evidence_quality": 4,
+  "detection_provenance": {"bug-id-1": "found", "bug-id-2": "inferred"},
   "reasoning": "brief explanation"
 }
 
@@ -126,5 +143,6 @@ Rules:
 - "detected" and "missed" arrays must only contain IDs from the ground truth: ${groundTruth.bugs.map((b: any) => b.id).join(', ')}
 - detection_rate = length of detected array
 - evidence_quality (1-5): Do detected bugs have screenshots, repro steps, or specific element references?
-  5 = excellent evidence for every bug, 1 = no evidence at all`);
+  5 = excellent evidence for every bug, 1 = no evidence at all
+- detection_provenance: every ID in "detected" must appear as a key with value "found" | "inferred" | "uncertain"`);
 }
