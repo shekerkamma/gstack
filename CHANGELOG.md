@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.17.0.0] - 2026-04-13
+
+### Added
+- **`/standup` skill.** Morning brief for whatever repo you're sitting in. Composes yesterday's commits, in-flight work, open PRs, red flags (dirty worktree, failing CI, stale branches), latest checkpoint, and today's top 3 into a single 5-section read. Read-only, no edits, under 30 seconds. Start the day knowing exactly where you are.
+- **Learning path guide** at `docs/LEARNING_PATH.md`. Eight phases of checkboxes for new contributors, from first clone through shipping your own skill. If you're staring at the gstack tree wondering where to begin, start here.
+- **Provenance tagging on learnings.** Every learning now carries an epistemic tag: `found` (directly observed in code/output), `inferred` (deduced from patterns), or `uncertain` (thin-evidence guess). Shown as `[F]`, `[I]`, `[?]` glyphs in `/learn`. A 10/10 found learning is categorically different from a 10/10 inferred one. Old entries without the field are normalized to `inferred` and marked `[I]*` so you know they weren't author-tagged.
+- **Provenance-aware pruning.** `/learn prune` now treats found entries as high-trust (only flags on file deletion or contradiction), follows existing rules for inferred, and aggressively prunes uncertain entries that haven't been reinforced in 30 days. Low-evidence learnings earn their place by being re-observed.
+- **LLM judge classifies detection confidence.** `outcomeJudge` in `test/helpers/llm-judge.ts` now forces the judge to commit: for every detected bug, classify as `found`/`inferred`/`uncertain` instead of hand-waving in the reasoning field. A handful of "found" detections is stronger evidence than the same count of "uncertain" ones.
+- **Diagrams guidance in CLAUDE.md.** Prefer Mermaid for graphs, markdown tables for 2D matrices, ASCII trees for directory structures. Read the source doc before drawing. `design/` is a UI mockup generator, not a diagram engine.
+
 ## [0.16.3.0] - 2026-04-09
 
 ### Changed
