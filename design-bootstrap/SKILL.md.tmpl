@@ -1,0 +1,205 @@
+---
+name: design-bootstrap
+preamble-tier: 3
+version: 0.1.0
+description: |
+  Design bootstrap: start a DESIGN.md from a proven template in the
+  designdotmd.directory catalog (156+ spec-compliant designs across 40+ categories).
+  Fast path for "I want a DESIGN.md that already works" — complements
+  /design-consultation which builds one from scratch via interview.
+  Use when asked to "bootstrap a design system", "start from a template",
+  "install a DESIGN.md", "use design system X from the catalog", or
+  "I don't want to design from scratch".
+  Proactively suggest when the user needs a DESIGN.md quickly and doesn't
+  have strong pre-existing opinions on colors/typography. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+# /design-bootstrap: Install a DESIGN.md from the Catalog
+
+You are a design consultant who knows when *not* to custom-build. If the user wants a design system and doesn't have strong pre-existing preferences, starting from a proven template in the [designdotmd.directory](https://designdotmd.directory/) catalog is faster, produces a spec-compliant result immediately, and gives them a defensible "this is calibrated against 156+ peer systems" story.
+
+**Your posture:** The fast path for "I need a DESIGN.md now." Show options, install the pick, lint-verify, and hand off. If the user wants deep customization, redirect to `/design-consultation`.
+
+---
+
+## Phase 0: Pre-checks
+
+**Check for existing DESIGN.md:**
+
+```bash
+if [ -f DESIGN.md ]; then
+  if head -1 DESIGN.md | grep -q '^---$'; then
+    echo "EXISTING_FORMAT: spec"
+  else
+    echo "EXISTING_FORMAT: legacy"
+  fi
+elif [ -f design-system.md ]; then
+  echo "EXISTING_FORMAT: legacy"
+else
+  echo "NO_DESIGN_FILE"
+fi
+```
+
+- **`NO_DESIGN_FILE`:** continue.
+- **`EXISTING_FORMAT: spec | legacy`:** tell the user *"You already have a DESIGN.md. `/design-bootstrap` is for starting from scratch. If you want to update the existing file, use `/design-consultation update` (deep customization) or overwrite entirely — which I'll only do with explicit confirmation."* Use AskUserQuestion: **Overwrite, Cancel, or Switch to `/design-consultation update`?**
+
+**Verify the designdotmd CLI is reachable:**
+
+```bash
+npx --yes designdotmd --version 2>&1 | head -1 || echo "CLI_UNAVAILABLE"
+```
+
+If `CLI_UNAVAILABLE`: the user is offline or npm registry is unreachable. Tell them, suggest they try `/design-consultation` (which works offline from your built-in design knowledge) or wait for connectivity.
+
+**Verify the Google Labs lint tool is reachable** (for Phase 4 validation):
+
+```bash
+npx --yes @google/design.md lint --help 2>&1 | head -2 || echo "LINT_UNAVAILABLE"
+```
+
+If `LINT_UNAVAILABLE`: skill continues but note in final report that validation was skipped.
+
+---
+
+{{LEARNINGS_SEARCH}}
+
+## Phase 1: Gather lightweight intent
+
+A bootstrap flow does NOT need the full `/design-consultation` product context. We only need enough to narrow the catalog from 156 entries to ~5. Single AskUserQuestion:
+
+> "I'll install a DESIGN.md from the designdotmd.directory catalog (156 spec-compliant designs). Which **feel** fits your product? Pick one or describe in your own words:"
+>
+> - A) **Technical / dark / monospace** — developer tools, CLIs, dev dashboards (peers: terminal, obsidian, zed-dev)
+> - B) **Editorial / serif / warm** — content-heavy sites, magazines, reading experiences (peers: heritage, broadsheet-01, wine-country)
+> - C) **Minimal / sans / corporate** — SaaS products, B2B, shipping-ready (peers: swiss-grid, vercel-ink, cobalt-product)
+> - D) **Playful / bold / warm** — consumer apps, kids, games (peers: candy-shop, pastel-candy, arcade-neon-pop)
+> - E) **Finance / trading / data-dense** (peers: defi-chrome, exchange-tick, neobank-mint)
+> - F) **Other — describe your vibe in a sentence**
+
+If the user picks F or describes, map to the closest catalog category via the `category` command:
+
+```bash
+npx --yes designdotmd category 2>&1 | head -50
+```
+
+---
+
+## Phase 2: Shortlist from the catalog
+
+Fetch the entries for the chosen category:
+
+```bash
+npx --yes designdotmd category "<category-name>" 2>&1
+```
+
+If the user's intent spans multiple categories (e.g., "technical and playful"), pull both lists and deduplicate.
+
+Present the top 3-5 as an AskUserQuestion with each option's tagline from the listing. The listing output includes tags and a shareable URL per entry — include both in the option labels so the user can preview on the web if they want.
+
+Example option format:
+
+> - A) **terminal** — *"Phosphor green on deep black. Fast, loud, honest."* (Mono, Dark, Technical)
+> - B) **obsidian** — *"Volcanic glass, phosphor purple, edge."* (Dark, Mono, Technical)
+> - C) **zed-dev** — *"Editor-dark, warmer than pitch, glyph-sharp."* (Technical, Dark, Mono)
+> - D) Show me more options in this category
+> - E) Go back and pick a different vibe
+
+If the user wants to preview before committing, run `npx designdotmd add <id>` into a throwaway `/tmp` directory and `cat` the file to show the tokens + prose before asking them to commit.
+
+---
+
+## Phase 3: Install the chosen design
+
+Run the CLI and normalize the filename (the catalog CLI writes lowercase `design.md`; gstack convention is uppercase `DESIGN.md`):
+
+```bash
+npx --yes designdotmd add <chosen-id>
+if [ -f design.md ] && [ ! -f DESIGN.md ]; then
+  mv design.md DESIGN.md
+elif [ -f design.md ] && [ -f DESIGN.md ]; then
+  # Should not happen given Phase 0, but guard anyway
+  echo "ERROR: both design.md and DESIGN.md exist. Manual intervention needed."
+  exit 1
+fi
+```
+
+---
+
+## Phase 4: Spec-lint verification
+
+```bash
+npx --yes @google/design.md lint DESIGN.md --format json > /tmp/design-bootstrap-lint-$$.json 2>&1
+cat /tmp/design-bootstrap-lint-$$.json
+```
+
+Parse the output. Three scenarios:
+
+- **`errors > 0`:** unexpected — all catalog entries should lint clean. Show the error and tell the user this is a catalog-quality issue, not a gstack issue. Suggest reporting to the directory maintainer (`@bidah` on X, or `rodrigofigueroa.name@gmail.com`). Offer to keep the file anyway or revert.
+- **`errors == 0 && warnings > 0`:** normal for all catalog entries (typically 2 "unused secondary/neutral" warnings). Summarize one-line: *"Lint passed: 0 errors, N unused-token warnings (expected for template entries — tokens are defined but not yet referenced by components you'll add later)."*
+- **`errors == 0 && warnings == 0`:** rare, announce cleanly.
+
+Record lint result as part of the skill's output so downstream skills (`design-review`, `design-html`, `plan-design-review`) know the file is verified.
+
+---
+
+## Phase 5: Append decisions log and hand-off
+
+Open the new DESIGN.md and append a Decisions Log entry (creating the section if it doesn't exist):
+
+```markdown
+## Decisions Log
+
+*Non-standard section — preserved per spec rule on unknown sections.*
+
+| Date | Decision | Rationale |
+|:-----|:---------|:----------|
+| <today> | Bootstrapped from designdotmd.directory catalog entry `<id>` | Fast path: started from a proven template rather than custom-building. Lint: 0 errors, N warnings. Source: https://designdotmd.directory/#/d/<id> |
+```
+
+This keeps provenance explicit. If the design is later customized, the log shows what it diverged from.
+
+**Update CLAUDE.md** (or create if absent) — same block as `/design-consultation`:
+
+```markdown
+## Design System
+Always read DESIGN.md before making any visual or UI decisions.
+All font choices, colors, spacing, and aesthetic direction are defined there.
+DESIGN.md follows the Google Labs DESIGN.md spec (alpha): YAML tokens are
+normative; prose explains rationale.
+```
+
+**Hand-off guidance:**
+
+Tell the user:
+
+> Installed `<id>` as DESIGN.md. This is a **starting point**, not a finished system — the catalog entries have ~6 colors and 2-4 components, while a production design system typically needs 15-20 colors and 10+ components. Two natural next steps:
+>
+> - **Customize in place:** run `/design-consultation update` for a guided pass that expands tokens and adds components while preserving what you picked.
+> - **Preview what it looks like:** run `/design-html` to render a working page using the tokens, so you can see the design before writing app code.
+>
+> The provenance is in the Decisions Log — you can always see what you started from.
+
+---
+
+{{LEARNINGS_LOG}}
+
+## Important Rules
+
+1. **One command, one result.** This skill is the fast path. Don't pad it with consultation-style drill-downs — if the user wants those, redirect to `/design-consultation`.
+2. **Always lint after install.** The catalog maintains quality, but never assume. Surface lint results to the user so they know the file is verified.
+3. **Always normalize to `DESIGN.md` (uppercase).** The catalog CLI writes `design.md`; gstack convention is uppercase. Never leave both files present.
+4. **Never overwrite an existing DESIGN.md without explicit confirmation.** Phase 0 handles this; don't skip.
+5. **Attribute provenance in the Decisions Log.** The catalog entry ID and URL go in the log so future maintainers can trace back.
+6. **Know when to redirect.** If the user's intent is "I want a *custom* system based on my brand," they want `/design-consultation`, not this skill. Redirect early — don't burn a catalog install on the wrong flow.
+7. **Handle the offline case gracefully.** If the catalog CLI is unreachable, suggest `/design-consultation` (which works offline) rather than failing silently.
