@@ -262,6 +262,37 @@ See YAML tokens for precise values. Component design rules:
 - **Duration:** micro `50–100ms`, short `150ms`, medium `250ms`, long `400ms`.
 - **Animated elements:** live feed dot pulse (2s infinite), skill bar fill (600ms ease-out), hover states (150ms).
 
+## Category Benchmark
+
+*Non-standard section — preserved per spec rule on unknown sections.*
+
+Comparison against the five closest entries in the [designdotmd.directory](https://designdotmd.directory/) Technical + Dark + Mono intersection, captured 2026-04-24 against designdotmd CLI v0.4.1. All five catalog entries and gstack's own file lint clean under `npx @google/design.md lint` (0 errors).
+
+| Name | Primary | Base | Display font | Body font | `spacing.md` | `rounded.md` | #colors | #type | #components |
+|:-----|:--------|:-----|:-------------|:----------|:-------------|:-------------|--------:|------:|------------:|
+| **gstack** | `#F59E0B` | `#0C0C0C` | Satoshi | DM Sans | 16px | 8px | **19** | **10** | **12** |
+| terminal | `#E6EDF3` | `#0D1117` | IBM Plex Mono | IBM Plex Mono | 16px | 6px | 6 | 4 | 2 |
+| obsidian | `#E9E6F2` | `#13111C` | Inter | Inter | 16px | 10px | 6 | 4 | 2 |
+| graphite | `#ECEDEE` | `#0E1013` | Inter Tight | Inter | 16px | 10px | 6 | 4 | 2 |
+| zed-dev | `#E5E4DF` | `#161614` | JetBrains Mono | Inter | 16px | 6px | 6 | 4 | 2 |
+| devops-graphite | `#E8ECF1` | `#121418` | Space Grotesk | Inter | 16px | 6px | 6 | 4 | 2 |
+
+### Where gstack aligns with category consensus
+
+- **Base color** — `#0C0C0C` sits on the darker end of the category range (`#0D1117` terminal → `#161614` zed-dev). Aligns with the "near-black, not pure black" convention shared by all five peers.
+- **`spacing.md` = 16px** — unanimous across the category. Category baseline confirmed.
+- **`rounded.md` = 8px** — mid-range; terminal/zed-dev/devops-graphite pick 6px (sharper), obsidian/graphite pick 10px (softer). gstack's 8px is deliberately between the two poles.
+
+### Where gstack deliberately diverges
+
+- **Primary = amber `#F59E0B`, not near-white.** All five peers use a near-white (`#E5E4DF` → `#ECEDEE`) as their `primary` token, treating it as "ink on the dark background." gstack treats `primary` as a *brand accent* — the amber that reads as "terminal cursor." This is the highest-signal design decision in the whole file: the peer consensus is "primary is just the ink colour"; gstack's position is "primary is the brand." Defensible and distinctive; worth calling out in any sales / positioning context.
+- **Three-font strategy (Satoshi + DM Sans + JetBrains Mono), not a single family.** Four of five peers use Inter or IBM Plex Mono as a single-font system. gstack uses three families with deliberate role separation (display vs body vs data). This is more expensive (loading three CDNs) but more recognizable.
+- **Token density ~3× category baseline** (19 vs 6 colors, 10 vs 4 typography levels, 12 vs 2 components). The catalog entries are *seeds* designers start from; gstack is a *shipped production system*. Not an apples-to-apples comparison — the benchmark is against starting points, not against fellow shipped systems.
+
+### Implication for the `primary` decision
+
+If we ever reconsider the amber accent, the category data says neutral-on-dark is the safe default. The decision to retain amber should be an explicit brand decision, not a drift. Revisit annually.
+
 ## Decisions Log
 
 *Non-standard section — preserved per spec rule on unknown sections.*
@@ -273,3 +304,4 @@ See YAML tokens for precise values. Component design rules:
 | 2026-03-21 | Grain texture | Adds materiality to flat dark surfaces. Prevents the "generic SaaS template" sameness. |
 | 2026-04-24 | Migrated to DESIGN.md spec (Google Labs, alpha) | Tokens moved to YAML front matter for machine-readable consumption. Prose kept as rationale. Enables `npx @google/design.md lint`. |
 | 2026-04-24 | Semantic colors moved to 600-tier | Spec lint flagged WCAG AA contrast failures on `badge-error` (3.61:1) and `badge-info` (3.52:1). Darkened `error` `#EF4444` → `#DC2626` and `info` `#3B82F6` → `#2563EB`; also moved `success` to `#16A34A` for consistency. All badge text/fill pairs now pass AA. |
+| 2026-04-24 | Benchmarked against designdotmd.directory Technical category | Validated alignment on base color, spacing, and rounded scale against 5 closest catalog entries (terminal, obsidian, graphite, zed-dev, devops-graphite). Confirmed amber `primary` is a deliberate divergence from category consensus (all 5 peers use near-white as `primary`). |
