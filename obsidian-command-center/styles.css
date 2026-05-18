@@ -1,0 +1,220 @@
+/* gstack Command Center — Obsidian Plugin Styles */
+
+.gstack-cc {
+  padding: 16px;
+  font-family: var(--font-interface);
+}
+
+.gstack-cc-header {
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 12px;
+}
+
+.gstack-cc-header h2 {
+  margin: 0 0 6px 0;
+  font-size: 1.2em;
+}
+
+.gstack-cc-status {
+  font-size: 0.85em;
+}
+
+.gstack-cc-project {
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+.gstack-cc-branch {
+  font-family: var(--font-monospace);
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.gstack-cc-muted {
+  color: var(--text-muted);
+}
+
+/* Sections */
+.gstack-cc-section {
+  margin-bottom: 24px;
+}
+
+.gstack-cc-section h3 {
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 10px 0;
+}
+
+/* Skill Grid */
+.gstack-cc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.gstack-cc-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gstack-cc-btn:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--text-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.gstack-cc-btn:active {
+  transform: translateY(0);
+}
+
+.gstack-cc-btn-icon {
+  font-size: 1.4em;
+  flex-shrink: 0;
+}
+
+.gstack-cc-btn-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gstack-cc-btn-info strong {
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gstack-cc-btn-info small {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Output */
+.gstack-cc-output {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 12px;
+  min-height: 100px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.gstack-cc-output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+.gstack-cc-save-btn {
+  font-size: 0.75em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  cursor: pointer;
+}
+
+.gstack-cc-save-btn:hover {
+  opacity: 0.9;
+}
+
+/* Test button */
+.gstack-cc-test-btn {
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  font-size: 0.85em;
+  margin-bottom: 8px;
+}
+
+.gstack-cc-test-ok {
+  border-color: var(--color-green) !important;
+  color: var(--color-green);
+}
+
+.gstack-cc-test-fail {
+  border-color: var(--text-error) !important;
+  color: var(--text-error);
+}
+
+.gstack-cc-output-text {
+  font-size: 0.8em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.gstack-cc-error {
+  color: var(--text-error);
+  font-size: 0.85em;
+}
+
+/* Running state */
+.gstack-cc-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.gstack-cc-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--text-accent);
+  border-radius: 50%;
+  animation: gstack-spin 0.8s linear infinite;
+}
+
+@keyframes gstack-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Activity list */
+.gstack-cc-activity {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.gstack-cc-activity li {
+  padding: 4px 0;
+  font-size: 0.82em;
+  border-bottom: 1px solid var(--background-modifier-border-hover);
+}
+
+.gstack-cc-activity li:last-child {
+  border-bottom: none;
+}
+
+.gstack-cc-skill-name {
+  font-family: var(--font-monospace);
+  font-weight: 500;
+  color: var(--text-accent);
+}

@@ -1,0 +1,9 @@
+{
+  "id": "gstack-command-center",
+  "name": "gstack Command Center",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Visual command center for gstack skills — dashboards, one-click skill triggers, and output viewer.",
+  "author": "gstack",
+  "isDesktopOnly": true
+}

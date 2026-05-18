@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── gstack Command Center — Obsidian Plugin Installer ───────────────────────
+#
+# This script:
+#   1. Builds the plugin from source
+#   2. Installs it into your Obsidian vault
+#   3. Configures the vault's CLAUDE.md for gstack integration
+#
+# Usage:
+#   ./setup /path/to/your/obsidian/vault
+#
+# If you don't have a vault yet, this script can create one.
+# ──────────────────────────────────────────────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ID="gstack-command-center"
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+info()  { echo -e "\033[1;34m→\033[0m $*"; }
+ok()    { echo -e "\033[1;32m✓\033[0m $*"; }
+warn()  { echo -e "\033[1;33m!\033[0m $*"; }
+fail()  { echo -e "\033[1;31m✗\033[0m $*" >&2; exit 1; }
+
+# ─── Vault path ──────────────────────────────────────────────────────────────
+
+VAULT_PATH="${1:-}"
+
+if [[ -z "$VAULT_PATH" ]]; then
+  echo ""
+  echo "  gstack Command Center — Obsidian Plugin Setup"
+  echo "  ─────────────────────────────────────────────"
+  echo ""
+  echo "  Usage: ./setup /path/to/your/obsidian/vault"
+  echo ""
+  echo "  What is an Obsidian vault?"
+  echo "    It's just a folder on your computer that Obsidian opens."
+  echo "    Any folder with a .obsidian/ subfolder is a vault."
+  echo ""
+  echo "  Don't have one yet?"
+  echo "    1. Install Obsidian: https://obsidian.md/download"
+  echo "    2. Open it and create a new vault (it'll ask for a folder)"
+  echo "    3. Re-run this script with that folder path"
+  echo ""
+  echo "  Common locations:"
+  echo "    macOS:   ~/Documents/MyVault"
+  echo "    Linux:   ~/obsidian-vault"
+  echo "    Windows: C:\\Users\\you\\Documents\\MyVault"
+  echo ""
+  exit 1
+fi
+
+# Expand ~ if used
+VAULT_PATH="${VAULT_PATH/#\~/$HOME}"
+
+# ─── Validate vault ──────────────────────────────────────────────────────────
+
+if [[ ! -d "$VAULT_PATH" ]]; then
+  info "Creating vault directory: $VAULT_PATH"
+  mkdir -p "$VAULT_PATH"
+fi
+
+OBSIDIAN_DIR="$VAULT_PATH/.obsidian"
+if [[ ! -d "$OBSIDIAN_DIR" ]]; then
+  info "Initializing Obsidian vault structure..."
+  mkdir -p "$OBSIDIAN_DIR/plugins"
+  echo '{}' > "$OBSIDIAN_DIR/app.json"
+  echo '{}' > "$OBSIDIAN_DIR/appearance.json"
+  echo '{"gstack-command-center":true}' > "$OBSIDIAN_DIR/community-plugins.json"
+  ok "Created .obsidian/ config"
+else
+  ok "Found existing Obsidian vault"
+fi
+
+# ─── Build plugin ────────────────────────────────────────────────────────────
+
+info "Installing dependencies..."
+cd "$SCRIPT_DIR"
+
+if command -v bun &>/dev/null; then
+  bun install --silent 2>/dev/null
+  PKG_RUNNER="bun"
+elif command -v npm &>/dev/null; then
+  npm install --silent 2>/dev/null
+  PKG_RUNNER="npx"
+else
+  fail "Need bun or npm. Install one: https://bun.sh or https://nodejs.org"
+fi
+
+info "Building plugin..."
+if [[ "$PKG_RUNNER" == "bun" ]]; then
+  bun run build
+else
+  npx node esbuild.config.mjs production
+fi
+ok "Built dist/main.js"
+
+# ─── Install into vault ──────────────────────────────────────────────────────
+
+PLUGIN_DIR="$OBSIDIAN_DIR/plugins/$PLUGIN_ID"
+mkdir -p "$PLUGIN_DIR"
+
+cp "$SCRIPT_DIR/dist/main.js" "$PLUGIN_DIR/main.js"
+cp "$SCRIPT_DIR/manifest.json" "$PLUGIN_DIR/manifest.json"
+cp "$SCRIPT_DIR/styles.css" "$PLUGIN_DIR/styles.css"
+ok "Installed plugin to $PLUGIN_DIR"
+
+# ─── Enable plugin ───────────────────────────────────────────────────────────
+
+COMMUNITY_PLUGINS="$OBSIDIAN_DIR/community-plugins.json"
+if [[ -f "$COMMUNITY_PLUGINS" ]]; then
+  # Add our plugin if not already there
+  if ! grep -q "$PLUGIN_ID" "$COMMUNITY_PLUGINS" 2>/dev/null; then
+    # Simple JSON manipulation without jq dependency
+    CONTENT=$(cat "$COMMUNITY_PLUGINS")
+    if [[ "$CONTENT" == "{}" || "$CONTENT" == "[]" ]]; then
+      echo "[\"$PLUGIN_ID\"]" > "$COMMUNITY_PLUGINS"
+    else
+      # Append to existing array
+      sed -i 's/\]$/,"'"$PLUGIN_ID"'"]/' "$COMMUNITY_PLUGINS" 2>/dev/null || \
+        echo "[\"$PLUGIN_ID\"]" > "$COMMUNITY_PLUGINS"
+    fi
+  fi
+else
+  echo "[\"$PLUGIN_ID\"]" > "$COMMUNITY_PLUGINS"
+fi
+ok "Plugin enabled in community-plugins.json"
+
+# ─── Create vault structure for gstack outputs ────────────────────────────────
+
+mkdir -p "$VAULT_PATH/gstack-outputs"
+
+# ─── Write CLAUDE.md if not present ──────────────────────────────────────────
+
+CLAUDE_MD="$VAULT_PATH/CLAUDE.md"
+if [[ ! -f "$CLAUDE_MD" ]]; then
+  info "Creating CLAUDE.md for vault..."
+  cat > "$CLAUDE_MD" << 'CLAUDE_EOF'
+# Obsidian Vault — Claude Code Conventions
+
+## Vault Structure
+
+```
+vault/
+├── gstack-outputs/    # Skill outputs (auto-generated reports, retros, etc.)
+├── projects/          # Active project notes and research
+├── research/          # Deep research, analysis, strategy docs
+├── daily/             # Daily notes (YYYY-MM-DD.md)
+└── archive/           # Completed/old material
+```
+
+## Navigation Pattern
+
+When looking for information:
+1. Check the current folder's index (README.md or _index.md) first
+2. Use wikilinks ([[filename]]) to follow references
+3. Recent outputs live in gstack-outputs/ sorted by date
+
+## File Conventions
+
+- Use wikilinks: [[page-name]] not [text](path.md)
+- Tags: #tag-name in frontmatter or inline
+- Dates in filenames: YYYY-MM-DD format
+- Frontmatter for metadata: title, date, tags, source
+
+## gstack Integration
+
+- Skill outputs are saved to gstack-outputs/{skill}-{date}.md
+- The command center plugin shows recent activity from ~/.gstack/analytics/
+- Run skills from the command center panel (right sidebar) or terminal
+CLAUDE_EOF
+  ok "Created CLAUDE.md with vault conventions"
+else
+  warn "CLAUDE.md already exists — skipping (review and merge manually if needed)"
+fi
+
+# ─── Create starter folders ──────────────────────────────────────────────────
+
+for dir in projects research daily archive; do
+  mkdir -p "$VAULT_PATH/$dir"
+done
+
+# ─── Done ─────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "  ┌─────────────────────────────────────────────────┐"
+echo "  │  gstack Command Center installed!               │"
+echo "  ├─────────────────────────────────────────────────┤"
+echo "  │                                                 │"
+echo "  │  Next steps:                                    │"
+echo "  │                                                 │"
+echo "  │  1. Open Obsidian                               │"
+echo "  │  2. Open your vault: $VAULT_PATH"
+echo "  │  3. Click the terminal icon in the left ribbon  │"
+echo "  │     (or Cmd+P → 'gstack Command Center')       │"
+echo "  │                                                 │"
+echo "  │  Recommended plugins (install via Obsidian):    │"
+echo "  │  • Terminal (for integrated Claude Code)        │"
+echo "  │  • Hot Reload (for plugin dev, optional)        │"
+echo "  │                                                 │"
+echo "  │  Configure:                                     │"
+echo "  │  Settings → Community Plugins →                 │"
+echo "  │  gstack Command Center → Set project dir        │"
+echo "  │                                                 │"
+echo "  └─────────────────────────────────────────────────┘"
+echo ""
