@@ -1,12 +1,14 @@
 ---
 name: design-review
 preamble-tier: 4
-version: 2.0.0
+version: 2.1.0
 description: |
   Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems,
-  AI slop patterns, and slow interactions — then fixes them. Iteratively fixes issues
-  in source code, committing each fix atomically and re-verifying with before/after
-  screenshots. For plan-mode design review (before implementation), use /plan-design-review.
+  AI slop patterns, and slow interactions — then fixes them. Validates DESIGN.md
+  against the Google Labs spec as a fast structural gate before the visual pass.
+  Iteratively fixes issues in source code (CSS or DESIGN.md tokens), committing each
+  fix atomically and re-verifying with before/after screenshots.
+  For plan-mode design review (before implementation), use /plan-design-review.
   Use when asked to "audit the design", "visual QA", "check if it looks good", or "design polish".
   Proactively suggest when the user mentions visual inconsistencies or
   wants to polish the look of a live site. (gstack)
@@ -580,9 +582,29 @@ $B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP
 ```
 If `CDP_MODE=true`: skip cookie import steps — the real browser already has cookies and auth sessions. Skip headless detection workarounds.
 
-**Check for DESIGN.md:**
+**Check for DESIGN.md and detect format:**
 
-Look for `DESIGN.md`, `design-system.md`, or similar in the repo root. If found, read it — all design decisions must be calibrated against it. Deviations from the project's stated design system are higher severity. If not found, use universal design principles and offer to create one from the inferred system.
+```bash
+if [ -f DESIGN.md ]; then
+  if head -1 DESIGN.md | grep -q '^---$'; then
+    echo "DESIGN_MD: spec"
+  else
+    echo "DESIGN_MD: legacy"
+  fi
+elif [ -f design-system.md ]; then
+  echo "DESIGN_MD: legacy"
+else
+  echo "DESIGN_MD: missing"
+fi
+```
+
+Branch on the result:
+
+- **`DESIGN_MD: spec`:** read it. Parse the YAML front matter as the source of truth for tokens. The prose sections calibrate qualitative judgments. Deviations from tokens are **high-impact** findings; deviations from prose rationale are **medium**.
+- **`DESIGN_MD: legacy`:** read it. Calibrate against prose as before. Mention that `/design-consultation` can migrate this file in-place to the spec format so downstream skills can parse it mechanically — surface this as a low-impact finding in the final report, not a blocker.
+- **`DESIGN_MD: missing`:** use universal design principles and offer to create a DESIGN.md via `/design-consultation` at the end of the session.
+
+Record which branch applies as `$DESIGN_MD_STATE` — Phase 0.5 and Phase 10 both read it.
 
 **Check for clean working tree:**
 
@@ -893,6 +915,37 @@ matches a past learning, display:
 
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
+
+## Phase 0.5: Spec Lint Gate (only if `$DESIGN_MD_STATE == spec`)
+
+Before touching the live site, validate DESIGN.md itself. Structural issues in the source of truth propagate — if `button-primary.textColor` references a non-existent `{colors.on-primary}` token, every button on the site will inherit the confusion. Catching that here is 100× cheaper than catching it in screenshots.
+
+```bash
+npx --yes @google/design.md lint DESIGN.md --format json > "$REPORT_DIR/lint-baseline.json" 2>&1
+_LINT_EXIT=$?
+cat "$REPORT_DIR/lint-baseline.json"
+```
+
+Parse the findings and promote them into the same finding format used by the visual audit (so they flow through Phase 7 triage alongside visual findings):
+
+| Lint severity | Promoted to | Fix target |
+|:--------------|:------------|:-----------|
+| `error` | **High-impact** finding, category `structural-spec` | DESIGN.md (always — it's a spec violation) |
+| `warning` (WCAG contrast fail) | **High-impact** finding, category `accessibility` | DESIGN.md token OR CSS — judgment call; see Phase 8 |
+| `warning` (unknown component property) | **Medium-impact** finding, category `structural-spec` | DESIGN.md |
+| `info` (non-standard section preserved) | Not promoted — noted in final report only | N/A |
+
+Append each promoted finding to the working finding list *before* Phase 1 begins. Annotate with `source: lint` so Phase 8 can branch on fix strategy. Also record `lint_baseline = {errors: N, warnings: N, info: N}` in `design-baseline.json`.
+
+**If `npx` fails entirely** (offline, registry blocked): skip gracefully with a note in the report (*"Spec lint skipped — network unavailable. Re-run locally to enforce."*). Do not block on network failure.
+
+**If `errors > 0` and the error is a broken token reference:** the live site is probably rendering broken styles right now. Show the user the error list and ask: *"DESIGN.md has N structural errors — the live site may be rendering from broken styles. Want me to fix DESIGN.md first, then audit, or audit as-is and treat these as findings?"* Default: fix first.
+
+### Why this runs before the visual audit
+
+Visual review takes 2–10 minutes per page (browse, screenshot, eyeball). Spec lint runs in ~2 seconds and finds a different class of defect — one that visual review is bad at catching (token-reference breakage often doesn't *look* wrong, it just looks *inconsistent across pages*). Running lint first gives triage a more complete picture and sometimes eliminates visual findings that were symptoms of a single upstream token error.
+
+---
 
 ## Phases 1-6: Design Audit Baseline
 
@@ -1412,6 +1465,12 @@ Sort all discovered findings by impact, then decide which to fix:
 
 Mark findings that cannot be fixed from source code (e.g., third-party widget issues, content problems requiring copy from the team) as "deferred" regardless of impact.
 
+### Lint findings in triage
+
+Findings sourced from Phase 0.5 (lint) already have severity assigned by the mapping table. In triage, treat them equivalently to visual findings of the same impact — sort by impact, not by source. A high-impact lint error (broken token reference) and a high-impact visual finding (unreadable nav contrast) both get fixed before any medium-impact finding.
+
+**Exception:** if a lint error and a visual finding are both present and the lint error is the **root cause** of the visual finding (e.g., the lint flags that `on-primary` is undefined, and the visual pass flags unreadable button text — same issue, different layers), fix the lint error first and mark the visual finding as *auto-resolved pending re-test*. Re-test in Phase 8d will confirm.
+
 ---
 
 ## Phase 8: Fix Loop
@@ -1420,14 +1479,42 @@ For each fixable finding, in impact order:
 
 ### 8a. Locate source
 
+Findings from Phase 0.5 (lint) or visual findings that trace to a token value have DESIGN.md as the primary fix target. All other findings have CSS/component files as the target.
+
+- **`source: lint`, category `structural-spec`:** fix target is always DESIGN.md. Edit the YAML front matter.
+- **`source: lint`, category `accessibility` (WCAG contrast fail):** *judgment call* — see Phase 8a.6.
+- **`source: visual`, token-traceable** (e.g., "the primary CTA color feels washed on light mode"): fix target is DESIGN.md (adjust the token), then CSS inherits.
+- **`source: visual`, component-specific** (e.g., "this one settings form has inconsistent padding"): fix target is the component file, not DESIGN.md. Don't pollute the system for a local defect.
+
 ```bash
 # Search for CSS classes, component names, style files
 # Glob for file patterns matching the affected page
+# If fix target is DESIGN.md, also grep for token usage:
+grep -rn "colors\.primary\|--color-primary\|text-primary" --include="*.tsx" --include="*.css"
 ```
 
 - Find the source file(s) responsible for the design issue
 - ONLY modify files directly related to the finding
-- Prefer CSS/styling changes over structural component changes
+- For DESIGN.md fixes, verify the token is actually consumed (CSS custom properties, Tailwind theme, component style map) — a token change only propagates if something reads it
+
+### 8a.6. DESIGN.md token vs CSS override — decision rule
+
+For WCAG contrast warnings with `source: lint`: decide whether to fix the DESIGN.md token or override at the component level.
+
+| Situation | Fix in DESIGN.md | Fix in CSS |
+|:----------|:----------------:|:----------:|
+| Token is *systemically* wrong (e.g., `primary` fails contrast on *every* surface) | ✓ | — |
+| Token is right for 90% of uses, one component needs an override | — | ✓ |
+| User explicitly approved the color in a prior `/design-consultation` session | — | ✓ (override; leave token) |
+| The failing pair is a one-off (e.g., only `badge-warning` on `surface-light`) | — | ✓ (override; leave token) |
+
+When fixing in DESIGN.md, prefer the **smallest token change that resolves contrast** — e.g., lighten `on-primary` from `#0C0C0C` to `#000000` before changing `primary` itself. Primary colors encode brand; on-colors encode contrast. Change on-colors first.
+
+If fixing DESIGN.md, after the edit **also re-run the lint** to confirm the warning is resolved and no new errors were introduced:
+
+```bash
+npx --yes @google/design.md lint DESIGN.md --format json
+```
 
 ### 8a.5. Target Mockup (if DESIGN_READY)
 
@@ -1453,11 +1540,14 @@ This step is optional — skip for trivial CSS fixes (wrong hex color, missing p
 
 ```bash
 git add <only-changed-files>
+# For CSS/component fixes:
 git commit -m "style(design): FINDING-NNN — short description"
+# For DESIGN.md token fixes:
+git commit -m "design(tokens): FINDING-NNN — short description"
 ```
 
 - One commit per fix. Never bundle multiple fixes.
-- Message format: `style(design): FINDING-NNN — short description`
+- Use `design(tokens):` for DESIGN.md changes, `style(design):` for CSS/component changes — the prefix makes the git log readable as two streams (token changes vs implementation changes).
 
 ### 8d. Re-test
 
@@ -1514,10 +1604,16 @@ DESIGN-FIX RISK:
 
 After all fixes are applied:
 
-1. Re-run the design audit on all affected pages
-2. If target mockups were generated during the fix loop AND `DESIGN_READY`: run `$D verify --mockup "$REPORT_DIR/screenshots/finding-NNN-target.png" --screenshot "$REPORT_DIR/screenshots/finding-NNN-after.png"` to compare the fix result against the target. Include pass/fail in the report.
-3. Compute final design score and AI slop score
-4. **If final scores are WORSE than baseline:** WARN prominently — something regressed
+1. Re-run the design audit on all affected pages.
+2. **Re-run spec lint** (only if `$DESIGN_MD_STATE == spec`):
+   ```bash
+   npx --yes @google/design.md lint DESIGN.md --format json > "$REPORT_DIR/lint-final.json"
+   ```
+   Compare against `lint-baseline.json`. Record the delta: *"Lint: errors 3→0, warnings 2→1, info 2→2"*. A warning that *didn't* get fixed (because it was deferred or the user declined the fix) is acceptable and shows up in the deferred list.
+3. If target mockups were generated during the fix loop AND `DESIGN_READY`: run `$D verify --mockup "$REPORT_DIR/screenshots/finding-NNN-target.png" --screenshot "$REPORT_DIR/screenshots/finding-NNN-after.png"` to compare the fix result against the target. Include pass/fail in the report.
+4. Compute final design score and AI slop score.
+5. **If final scores are WORSE than baseline:** WARN prominently — something regressed.
+6. **If lint went from `errors: 0` to `errors > 0`:** that's a hard regression — a fix introduced a structural spec error. WARN prominently and surface the specific error; the user likely wants to revert the offending commit.
 
 ---
 
@@ -1546,8 +1642,13 @@ Write a one-line summary to `~/.gstack/projects/{slug}/{user}-{branch}-design-au
 - Design score delta: baseline → final
 - AI slop score delta: baseline → final
 
+- **Spec lint delta** (if `$DESIGN_MD_STATE == spec`): errors X→Y, warnings X→Y, info X→Y
+- **Fix breakdown by target:** CSS/component fixes: N, DESIGN.md token fixes: N
+- **If `$DESIGN_MD_STATE == legacy`:** one-line note in the report — *"DESIGN.md is in pre-spec format. Run `/design-consultation` and choose 'migrate' to enable spec lint gating on future reviews."*
+- **If `$DESIGN_MD_STATE == missing`:** one-line note — *"No DESIGN.md found. Run `/design-consultation` to establish one — subsequent `/design-review` runs will gate on spec lint."*
+
 **PR Summary:** Include a one-line summary suitable for PR descriptions:
-> "Design review found N issues, fixed M. Design score X → Y, AI slop score X → Y."
+> "Design review found N issues, fixed M. Design score X → Y, AI slop score X → Y, lint errors X → Y."
 
 ---
 
@@ -1594,3 +1695,7 @@ already knows. A good test: would this insight save time in a future session? If
 15. **Self-regulate.** Follow the design-fix risk heuristic. When in doubt, stop and ask.
 16. **CSS-first.** Prefer CSS/styling changes over structural component changes. CSS-only changes are safer and more reversible.
 17. **DESIGN.md export.** You MAY write a DESIGN.md file if the user accepts the offer from Phase 2.
+18. **Spec lint runs before visual audit.** If `$DESIGN_MD_STATE == spec`, Phase 0.5 is not optional — it catches a class of defect the visual pass cannot see. Skip only on network failure, and note the skip in the report.
+19. **Token vs override judgment.** Fix DESIGN.md only when the token is *systemically* wrong. For one-off contrast failures, override at the component level and leave the token alone — the system shouldn't change for a local defect.
+20. **Fix lint errors before visual findings when they share a root cause.** A broken token reference is often the upstream cause of multiple visual symptoms. Fix the lint error, then re-test; often several visual findings auto-resolve.
+21. **Commit prefix distinguishes token changes from implementation changes.** Use `design(tokens):` for DESIGN.md edits and `style(design):` for CSS/component edits. This makes the git log readable as two streams.

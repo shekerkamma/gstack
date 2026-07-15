@@ -1,12 +1,14 @@
 ---
 name: design-consultation
 preamble-tier: 3
-version: 1.0.0
+version: 1.1.0
 description: |
   Design consultation: understands your product, researches the landscape, proposes a
   complete design system (aesthetic, typography, color, layout, spacing, motion), and
-  generates font+color preview pages. Creates DESIGN.md as your project's design source
-  of truth. For existing sites, use /plan-design-review to infer the system instead.
+  generates font+color preview pages. Creates a spec-compliant DESIGN.md
+  (Google Labs DESIGN.md spec, alpha — YAML tokens + markdown rationale) as your
+  project's design source of truth. For existing sites, use /plan-design-review to
+  infer the system instead.
   Use when asked to "design system", "brand guidelines", or "create DESIGN.md".
   Proactively suggest when starting a new project's UI with no existing
   design system or DESIGN.md. (gstack)
@@ -565,14 +567,31 @@ You are a senior product designer with strong opinions about typography, color, 
 
 ## Phase 0: Pre-checks
 
-**Check for existing DESIGN.md:**
+**Check for existing DESIGN.md and detect format:**
 
 ```bash
-ls DESIGN.md design-system.md 2>/dev/null || echo "NO_DESIGN_FILE"
+if [ -f DESIGN.md ]; then
+  # Spec-compliant files start with a YAML fence on line 1
+  if head -1 DESIGN.md | grep -q '^---$'; then
+    echo "EXISTING_FORMAT: spec"
+  else
+    echo "EXISTING_FORMAT: legacy"
+  fi
+elif [ -f design-system.md ]; then
+  echo "EXISTING_FORMAT: legacy"
+else
+  echo "NO_DESIGN_FILE"
+fi
 ```
 
-- If a DESIGN.md exists: Read it. Ask the user: "You already have a design system. Want to **update** it, **start fresh**, or **cancel**?"
-- If no DESIGN.md: continue.
+Branch on the result:
+
+- **`NO_DESIGN_FILE`:** continue to product context gathering.
+- **`EXISTING_FORMAT: spec`:** read it. Ask: *"You already have a spec-compliant DESIGN.md. Want to **update** it, **start fresh**, or **cancel**?"*
+- **`EXISTING_FORMAT: legacy`:** read it. Explain: *"Your DESIGN.md is in the pre-spec custom format. I can **migrate it in place** to the Google Labs DESIGN.md spec (YAML tokens + rationale prose) so downstream gstack design skills can consume it mechanically. Your existing decisions and prose are preserved — only the structure changes. Want to: **migrate**, **update** (migrate + revise), **start fresh**, or **cancel**?"*
+  - If **migrate**: skip Phases 1–5. Jump to Phase 6 with a "migration-only" flag — Phase 6 will translate the existing prose to the spec structure without re-running consultation.
+  - If **update**: migrate first, then run the full consultation flow as an update pass.
+  - If **start fresh**: move the existing file to `DESIGN.md.legacy` (preserve, don't delete), then run the full flow.
 
 **Gather product context from the codebase:**
 
@@ -1145,65 +1164,199 @@ If the user says skip the preview, go directly to Phase 6.
 
 ## Phase 6: Write DESIGN.md & Confirm
 
-If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the primary source for DESIGN.md values — colors, typography, and spacing grounded in the approved mockup rather than text descriptions alone. Merge extracted tokens with the Phase 3 proposal (the proposal provides rationale and context; the extraction provides exact values).
+### Output format — Google Labs DESIGN.md spec (alpha)
 
-**If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" section. Do NOT write the actual file — that happens at implementation time.
+This skill writes DESIGN.md in the [DESIGN.md spec](https://github.com/google-labs-code/design.md) format: YAML front matter for machine-readable tokens, markdown body for human-readable rationale. This enables `npx @google/design.md lint` validation and lets downstream gstack design skills (`design-html`, `design-review`, `design-shotgun`, `plan-design-review`) consume tokens mechanically instead of re-parsing prose.
+
+### Token source precedence
+
+If multiple sources are available, merge in this order (later wins on value conflicts; earlier wins on rationale):
+
+1. **Phase 5 `$D extract` output** (if Path A was used) — exact hex/size values grounded in the approved mockup
+2. **Phase 3 proposal** — provides semantic intent (which hex is the "primary") and rationale prose
+3. **Research findings** — informs prose sections (why these choices fit the category)
+
+### Semantic mapping
+
+The spec uses semantic token names (`primary`, `secondary`, `tertiary`, `neutral`), not implementation names (`amber-500`, `zinc-50`). When extracting or mapping:
+
+- The **brand accent color** → `primary`
+- A **second intentional color** (if any) → `secondary`; rare third → `tertiary`
+- The **gray/neutral scale** → `neutral-50` through `neutral-900`
+- **Surface colors** (page background, card background, borders) → top-level `base`, `surface`, `border` tokens
+- **Dark/light mode:** emit dark as the default palette, light as parallel tokens with `-light` suffix (e.g., `primary-light`, `surface-light`). Note the mode strategy in the prose `## Colors` section.
+
+Keep Tailwind-style names (e.g., "amber-500") in the *prose* — that's where the "why" lives. The YAML carries the values.
+
+### YAML token rules (must-not-break)
+
+- `fontWeight` values must be quoted strings (`"700"`, not `700`) — unquoted numerics break some parsers.
+- Scale keys must use alpha prefixes (`xxs`, `xxl`, `xxxl`), not digit prefixes (`2xs`, `2xl`, `3xl`) — digit-prefix keys trip the linter's YAML model builder.
+- `lineHeight` should use dimension values (`56px`, `1.5rem`) not unitless floats.
+- Component tokens always reference other tokens (`{colors.primary}`) — never literal values.
+
+### File structure
+
+**If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" fenced block. Do NOT write the actual file yet.
 
 **If NOT in plan mode:** Write `DESIGN.md` to the repo root with this structure:
 
-```markdown
+````markdown
+---
+version: alpha
+name: [Project Name]
+description: [One-sentence positioning]
+
+colors:
+  primary: "[hex]"
+  primary-accent: "[hex]"
+  on-primary: "[hex]"
+  primary-light: "[hex]"            # omit if single-mode
+  primary-accent-light: "[hex]"     # omit if single-mode
+
+  neutral-50: "[hex]"
+  neutral-400: "[hex]"
+  neutral-600: "[hex]"
+  neutral-800: "[hex]"
+
+  base: "[hex]"
+  surface: "[hex]"
+  border: "[hex]"
+  base-light: "[hex]"               # omit if single-mode
+  surface-light: "[hex]"            # omit if single-mode
+  border-light: "[hex]"             # omit if single-mode
+
+  success: "[hex — use 600-tier for AA contrast with white]"
+  warning: "[hex]"
+  error:   "[hex — use 600-tier for AA contrast with white]"
+  info:    "[hex — use 600-tier for AA contrast with white]"
+
+typography:
+  hero:
+    fontFamily: [Display font]
+    fontSize: [e.g., 72px]
+    fontWeight: "[e.g., 900]"
+    lineHeight: [dimension, e.g., 72px]
+    letterSpacing: [e.g., -0.03em]
+  h1:   { fontFamily: [...], fontSize: [...], fontWeight: "[...]", lineHeight: [dimension] }
+  h2:   { ... }
+  h3:   { ... }
+  body: { ... }
+  body-sm: { ... }
+  caption: { ... }
+  micro:   { fontFamily: [Mono], fontSize: [...], fontFeature: "'tnum' on" }
+  nano:    { fontFamily: [Mono], fontSize: [...], fontFeature: "'tnum' on" }
+
+spacing:
+  xxs: 2px
+  xs: 4px
+  sm: 8px
+  md: 16px
+  lg: 24px
+  xl: 32px
+  xxl: 48px
+  xxxl: 64px
+  max-content: [e.g., 1200px]
+
+rounded:
+  sm: 4px
+  md: 8px
+  lg: 12px
+  full: 9999px
+
+components:
+  card:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.neutral-50}"
+    rounded: "{rounded.lg}"
+    padding: 24px
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    rounded: "{rounded.md}"
+    padding: 12px
+  button-primary-hover:
+    backgroundColor: "{colors.primary-accent}"
+  input:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.neutral-50}"
+    rounded: "{rounded.md}"
+    padding: 8px
+  badge:
+    backgroundColor: "{colors.neutral-800}"
+    textColor: "{colors.neutral-50}"
+    typography: "{typography.nano}"
+    rounded: "{rounded.full}"
+    padding: 4px
+---
+
 # Design System — [Project Name]
 
-## Product Context
-- **What this is:** [1-2 sentence description]
-- **Who it's for:** [target users]
-- **Space/industry:** [category, peers]
-- **Project type:** [web app / dashboard / marketing site / editorial / internal tool]
+## Overview
 
-## Aesthetic Direction
-- **Direction:** [name]
-- **Decoration level:** [minimal / intentional / expressive]
-- **Mood:** [1-2 sentence description of how the product should feel]
-- **Reference sites:** [URLs, if research was done]
+[Merged from the old "Product Context" + "Aesthetic Direction" sections.
+Covers: what the product is, who it's for, the space/industry and peer
+products, project type, aesthetic direction, decoration level, mood,
+reference sites. 1–3 short paragraphs.]
+
+## Colors
+
+[Prose rationale for the palette. Explain *why* the primary is what it
+is, how the neutral temperature (cool vs warm) was chosen, what the
+semantic colors signal. Reference Tailwind-style names here if helpful
+for engineers. State the dark/light mode strategy explicitly.]
 
 ## Typography
-- **Display/Hero:** [font name] — [rationale]
-- **Body:** [font name] — [rationale]
-- **UI/Labels:** [font name or "same as body"]
-- **Data/Tables:** [font name] — [rationale, must support tabular-nums]
-- **Code:** [font name]
-- **Loading:** [CDN URL or self-hosted strategy]
-- **Scale:** [modular scale with specific px/rem values for each level]
 
-## Color
-- **Approach:** [restrained / balanced / expressive]
-- **Primary:** [hex] — [what it represents, usage]
-- **Secondary:** [hex] — [usage]
-- **Neutrals:** [warm/cool grays, hex range from lightest to darkest]
-- **Semantic:** success [hex], warning [hex], error [hex], info [hex]
-- **Dark mode:** [strategy — redesign surfaces, reduce saturation 10-20%]
-
-## Spacing
-- **Base unit:** [4px or 8px]
-- **Density:** [compact / comfortable / spacious]
-- **Scale:** 2xs(2) xs(4) sm(8) md(16) lg(24) xl(32) 2xl(48) 3xl(64)
+[Prose rationale for the font choices. Name each font with its role
+(Display / Body / Data), explain why that font over alternatives,
+describe the scale logic. Note loading strategy (CDN, display=swap).
+Never use blacklisted or overused fonts as primary recommendations.]
 
 ## Layout
-- **Approach:** [grid-disciplined / creative-editorial / hybrid]
-- **Grid:** [columns per breakpoint]
-- **Max content width:** [value]
-- **Border radius:** [hierarchical scale — e.g., sm:4px, md:8px, lg:12px, full:9999px]
+
+[Prose rationale for layout + spacing strategy. Describe the grid
+approach, base unit, density level, max content width.]
+
+## Elevation & Depth
+
+[If shadows: describe elevation strategy. If flat: describe how
+hierarchy is conveyed (tonal layers, borders, color contrast). If the
+design uses texture/grain, describe it here.]
+
+## Shapes
+
+[Prose rationale for rounded corner usage — what each radius signals
+(cards vs buttons vs pills vs structural elements).]
+
+## Components
+
+[Design rules that don't fit in tokens: "Primary buttons use on-primary
+text, never the inverse", "Inputs sit *in* cards, not *on* the page",
+"Badge text is always tabular-mono".]
+
+## Do's and Don'ts
+
+**Do:**
+- [3–5 positive rules grounded in the specific system.]
+
+**Don't:**
+- [3–5 negative rules grounded in the specific system.]
 
 ## Motion
-- **Approach:** [minimal-functional / intentional / expressive]
-- **Easing:** enter(ease-out) exit(ease-in) move(ease-in-out)
-- **Duration:** micro(50-100ms) short(150-250ms) medium(250-400ms) long(400-700ms)
+*Non-standard section — preserved per spec rule on unknown sections.*
+
+[Prose + specifics: approach, easing curves, duration scale, which
+elements animate. Motion is not in the canonical spec sections, but
+the spec explicitly says unknown sections are preserved.]
 
 ## Decisions Log
+*Non-standard section — preserved per spec rule on unknown sections.*
+
 | Date | Decision | Rationale |
-|------|----------|-----------|
-| [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
-```
+|:-----|:---------|:----------|
+| [today] | Initial design system | Created by /design-consultation. [1-sentence summary of direction.] |
+````
 
 **Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
 
@@ -1211,20 +1364,59 @@ If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the pr
 ## Design System
 Always read DESIGN.md before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.
-Do not deviate without explicit user approval.
-In QA mode, flag any code that doesn't match DESIGN.md.
+DESIGN.md follows the Google Labs DESIGN.md spec (alpha): YAML tokens are
+normative; prose explains rationale. To query tokens programmatically, parse
+the YAML front matter. Do not deviate from tokens without explicit user
+approval. In QA mode, flag any code that doesn't match DESIGN.md.
 ```
+
+### Migration-only path
+
+If Phase 0 detected `EXISTING_FORMAT: legacy` and the user chose **migrate** (not update), this phase skips proposal-generation and instead:
+
+1. Parses the legacy DESIGN.md section-by-section.
+2. Extracts every `key: value` pair from bullet lists into the corresponding YAML token.
+3. Preserves all prose rationale verbatim under the canonical section headings (renaming section titles to match spec: `## Product Context` + `## Aesthetic Direction` → `## Overview`; `## Color` → `## Colors`; `## Spacing` merges into `## Layout`; `## Grain Texture` merges into `## Elevation & Depth`).
+4. Keeps `## Motion` and `## Decisions Log` as preserved non-standard sections (with the italicized "preserved per spec rule" note).
+5. Appends a new row to the Decisions Log documenting the migration.
+
+The migration must be **lossless for prose** — never summarize or rewrite rationale the user approved in a prior consultation session.
+
+### Confirmation
 
 **AskUserQuestion Q-final — show summary and confirm:**
 
-List all decisions. Flag any that used agent defaults without explicit user confirmation (the user should know what they're shipping). Options:
+List all decisions. For a fresh DESIGN.md, flag any that used agent defaults without explicit user confirmation. For a migration, show a compact diff summary.
+
+Options:
 - A) Ship it — write DESIGN.md and CLAUDE.md
 - B) I want to change something (specify what)
 - C) Start over
 
-After shipping DESIGN.md, if the session produced screen-level mockups or page layouts
-(not just system-level tokens), suggest:
-"Want to see this design system as working Pretext-native HTML? Run /design-html."
+After shipping DESIGN.md, if the session produced screen-level mockups or page layouts (not just system-level tokens), suggest: *"Want to see this design system as working Pretext-native HTML? Run /design-html."*
+
+---
+
+## Phase 6.5: Validate against the spec
+
+After writing DESIGN.md, validate it with the Google Labs linter. This catches structural errors, broken token references, and WCAG contrast issues *before* downstream skills consume the file.
+
+```bash
+npx --yes @google/design.md lint DESIGN.md --format json > /tmp/design-lint-$$.json 2>&1
+_LINT_EXIT=$?
+cat /tmp/design-lint-$$.json
+```
+
+Parse the findings:
+
+- **`errors > 0`:** something is structurally wrong. Common causes: unquoted `fontWeight` numbers, digit-prefix scale keys (`2xs`/`2xl`), unitless `lineHeight`, broken `{path.to.token}` reference. Fix DESIGN.md, re-lint. Do not proceed until errors = 0.
+- **`warnings > 0`:** usually contrast-ratio warnings on component color pairs. Show each warning to the user and ask whether to proceed as-is, adjust the tokens, or swap the failing pair. Common fixes: change `on-primary` to a higher-contrast neutral, move semantic colors to 600-tier for AA contrast with white text.
+- **`info` findings:** non-standard section preserved (expected for `## Motion` and `## Decisions Log`). Surface to the user as a summary line, no action required.
+- **`errors == 0 && warnings == 0`:** announce the pass, show the one-line summary.
+
+Record the lint result in the learnings log so `/plan-design-review` and `/design-review` can factor lint status into their assessments.
+
+If `npx` fails entirely (offline, registry blocked), skip gracefully with a note: *"Couldn't run `@google/design.md lint` — DESIGN.md was still written. Re-run `npx @google/design.md lint DESIGN.md` later to validate."* Do not block on network failure.
 
 ---
 
@@ -1261,5 +1453,6 @@ already knows. A good test: would this insight save time in a future session? If
 4. **Never recommend blacklisted or overused fonts as primary.** If the user specifically requests one, comply but explain the tradeoff.
 5. **The preview page must be beautiful.** It's the first visual output and sets the tone for the whole skill.
 6. **Conversational tone.** This isn't a rigid workflow. If the user wants to talk through a decision, engage as a thoughtful design partner.
+9. **Emit spec-compliant DESIGN.md.** Tokens go in YAML front matter with semantic names (`primary`, `secondary`, `neutral-*`). Prose goes in canonical section order (Overview → Colors → Typography → Layout → Elevation & Depth → Shapes → Components → Do's and Don'ts). Non-canonical sections (Motion, Decisions Log) are preserved with an explicit "non-standard section" note. Component tokens always reference other tokens (`{colors.primary}`) — never literals. Every DESIGN.md must pass `npx @google/design.md lint` before the skill reports success.
 7. **Accept the user's final choice.** Nudge on coherence issues, but never block or refuse to write a DESIGN.md because you disagree with a choice.
 8. **No AI slop in your own output.** Your recommendations, your preview page, your DESIGN.md — all should demonstrate the taste you're asking the user to adopt.
